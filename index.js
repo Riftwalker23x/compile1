@@ -8,6 +8,7 @@ const pagePlanets = [
     { id: 'founders', label: 'Leadership' },
     { id: 'members', label: 'Members' },
     { id: 'projects', label: 'Projects' },
+    { id: 'merch', label: 'Merch' },
     { id: 'join', label: 'Join' }
 ];
 
@@ -544,3 +545,182 @@ if (typeof THREE === 'undefined') {
 
     render();
 }
+
+// ============================================================
+//  MERCH — Canvas jersey with live-updating text
+// ============================================================
+(function () {
+    var canvas = document.getElementById('jerseyCanvas');
+    if (!canvas) return;
+
+    var ctx = canvas.getContext('2d');
+
+    // Internal drawing resolution (matches HTML width/height attrs)
+    var CW = canvas.width;   // 280
+    var CH = canvas.height;  // 420
+
+    // Live state — defaults shown before user types
+    var jerseyData = {
+        name: 'YOUR NAME',
+        number: '00',
+        rank: 'MEMBER',
+        showFront: true,
+        frontImg: null,
+        backImg: null,
+        imagesReady: 0   // increments to 2 when both load
+    };
+
+    // ----------------------------------------------------------
+    //  Drawing helpers
+    // ----------------------------------------------------------
+    function drawFront() {
+        ctx.clearRect(0, 0, CW, CH);
+        if (jerseyData.frontImg) {
+            ctx.drawImage(jerseyData.frontImg, 0, 0, CW, CH);
+        }
+    }
+
+    function drawBack() {
+        ctx.clearRect(0, 0, CW, CH);
+        if (jerseyData.backImg) {
+            ctx.drawImage(jerseyData.backImg, 0, 0, CW, CH);
+        }
+
+        // ---- Text overlay ----
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Soft drop-shadow behind every text layer
+        ctx.shadowColor = 'rgba(0, 15, 50, 0.85)';
+        ctx.shadowBlur = 10;
+
+        // 1. NAME  — bold Orbitron, auto-shrink if too long
+        var nameTxt = jerseyData.name.toUpperCase();
+        var nameFontSize = 26;
+        ctx.font = 'bold ' + nameFontSize + 'px "Orbitron", monospace';
+        var maxNameW = CW * 0.60;
+        while (ctx.measureText(nameTxt).width > maxNameW && nameFontSize > 9) {
+            nameFontSize -= 1;
+            ctx.font = 'bold ' + nameFontSize + 'px "Orbitron", monospace';
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(nameTxt, CW * 0.50, CH * 0.255);   // ≈ y 107px on 420px canvas
+
+        // 2. RANK  — smaller Inter
+        ctx.font = '600 13px "Inter", sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.90)';
+        ctx.fillText(jerseyData.rank, CW * 0.50, CH * 0.325);  // ≈ y 136px
+
+        // 3. NUMBER  — giant bold Orbitron
+        var numFontSize = 78;
+        ctx.font = '900 ' + numFontSize + 'px "Orbitron", monospace';
+        var numTxt = jerseyData.number || '00';
+        // Shrink if two-digit number is still too wide (rare, but safe)
+        while (ctx.measureText(numTxt).width > CW * 0.70 && numFontSize > 20) {
+            numFontSize -= 2;
+            ctx.font = '900 ' + numFontSize + 'px "Orbitron", monospace';
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(numTxt, CW * 0.50, CH * 0.468);    // ≈ y 197px
+
+        ctx.restore();
+    }
+
+    function redraw() {
+        if (jerseyData.showFront) {
+            drawFront();
+        } else {
+            drawBack();
+        }
+    }
+
+    // ----------------------------------------------------------
+    //  Flip animation — CSS scaleX coin-flip technique
+    //  Phase 1: ease-in collapse (scaleX → 0)  → swap image → redraw
+    //  Phase 2: ease-out expand  (scaleX → 1)
+    //  Both phases: 450 ms.  Dwell time between flips: 2800 ms.
+    // ----------------------------------------------------------
+    var flipBusy = false;
+    var flipScheduler = null;
+
+    function scheduleNextFlip(delay) {
+        clearTimeout(flipScheduler);
+        flipScheduler = setTimeout(startFlip, delay || 2800);
+    }
+
+    function startFlip() {
+        if (flipBusy) return;
+        flipBusy = true;
+
+        // Phase 1 — collapse
+        canvas.style.transition = 'transform 0.45s cubic-bezier(0.55, 0, 1, 0.45)';
+        canvas.style.transform = 'scaleX(0)';
+
+        setTimeout(function () {
+            // Swap side + redraw at the invisible edge
+            jerseyData.showFront = !jerseyData.showFront;
+            redraw();
+
+            // Phase 2 — expand
+            canvas.style.transition = 'transform 0.45s cubic-bezier(0, 0.55, 0.45, 1)';
+            canvas.style.transform = 'scaleX(1)';
+
+            setTimeout(function () {
+                flipBusy = false;
+                scheduleNextFlip(2800);
+            }, 450);
+        }, 450);
+    }
+
+    // ----------------------------------------------------------
+    //  Image loading
+    // ----------------------------------------------------------
+    function loadImg(src, onDone) {
+        var img = new Image();
+        img.onload = function () { onDone(img); };
+        img.onerror = function () { onDone(null); };  // fail gracefully
+        img.src = src;
+    }
+
+    loadImg('./Assets/front.png', function (img) {
+        jerseyData.frontImg = img;
+        jerseyData.imagesReady += 1;
+        if (jerseyData.imagesReady === 2) { redraw(); scheduleNextFlip(2000); }
+    });
+
+    loadImg('./Assets/back.png', function (img) {
+        jerseyData.backImg = img;
+        jerseyData.imagesReady += 1;
+        if (jerseyData.imagesReady === 2) { redraw(); scheduleNextFlip(2000); }
+    });
+
+    // ----------------------------------------------------------
+    //  Input bindings — update state + redraw back if visible
+    // ----------------------------------------------------------
+    var nameEl   = document.getElementById('merchName');
+    var numberEl = document.getElementById('merchNumber');
+    var rankEl   = document.getElementById('merchRank');
+
+    if (nameEl) {
+        nameEl.addEventListener('input', function () {
+            jerseyData.name = this.value.trim() || 'YOUR NAME';
+            if (!jerseyData.showFront) redraw();
+        });
+    }
+
+    if (numberEl) {
+        numberEl.addEventListener('input', function () {
+            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 2);
+            jerseyData.number = this.value || '00';
+            if (!jerseyData.showFront) redraw();
+        });
+    }
+
+    if (rankEl) {
+        rankEl.addEventListener('input', function () {
+            jerseyData.rank = this.value.trim() || 'MEMBER';
+            if (!jerseyData.showFront) redraw();
+        });
+    }
+})();
